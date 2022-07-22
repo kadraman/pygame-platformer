@@ -20,6 +20,7 @@ vector = pg.math.Vector2
 
 CAPTION = "Platformer"
 SCREEN_SIZE = (600, 400)  # size of screen we are working with
+VIRTUAL_SCREEN_SIZE = (1000, 400)  # size of virtual screen for scrolling
 BACKGROUND_COLOR = (100, 200, 200)
 DEBUG_OVERLAY_SIZE = (300, 200)
 DEBUG_OVERLAY_BACKGROUND_COLOR = (0, 0, 0, 200)
@@ -39,10 +40,11 @@ class DebugOverlay(pg.sprite.Sprite):
     This sprite provides a useful overlay of important information.
     Not really a sprite but we can add it to a SpriteGroup for updates.
     """
-    def __init__(self, position, size, color):
+    def __init__(self, position, size, color, player):
         super(DebugOverlay, self).__init__()
         self.size = size
         self.color = color
+        self.player = player
         self.image = pg.Surface(self.size).convert_alpha()
         self.image.fill(self.color)
         self.rect = self.image.get_rect(center=position)
@@ -59,11 +61,11 @@ class DebugOverlay(pg.sprite.Sprite):
         """
         self.time_now = time.time()
         self.debug_text = [
-            "width: " + str(SCREEN_SIZE[0]),
-            "height:" + str(SCREEN_SIZE[1]),
+            "resolution: " + str(SCREEN_SIZE),
             "FPS: " + str(FPS),
             "dt: " + str(dt),
-            "time(s): " + str(Decimal('%2f' % (self.time_now - self.start_time)))
+            "position" + str(self.player.position),
+            "acceleration" + str(self.player.acceleration)
         ]
 
     def draw(self, surface):
@@ -95,7 +97,7 @@ class Player(pg.sprite.Sprite):
         self.image.fill(self.color)
         self.rect = self.image.get_rect(topright=position)
 
-    def update(self, keys, screen_rect, dt):
+    def update(self, keys, screen_rect, camera, dt):
         """
         Update accepts an argument dt (time delta between frames).
         Adjustments to position must be multiplied by this delta.
@@ -107,7 +109,9 @@ class Player(pg.sprite.Sprite):
         elif keys[pg.K_LEFT]:
             self.acceleration.x = -PLAYER_ACCELERATION
         else:
+            #print("no keys")
             self.acceleration.x = 0
+            self.velocity.x = 0
         if keys[pg.K_SPACE]:
             self.jump()        
 
@@ -161,22 +165,79 @@ class Player(pg.sprite.Sprite):
 
 
 class Platform(pg.sprite.Sprite):
-    def __init__(self, size, position, color):
+    def __init__(self, camera, size, position, color):
         super().__init__()
+        self.camera = camera
         self.size = size
-        self.position = position
+        self.start_pos = position
+        print(self.start_pos)
         self.color = color
         self.image = pg.Surface(self.size).convert_alpha()
         self.image.fill(self.color)
         #self.rect = self.image.get_rect(center = (SCREEN_SIZE[0]/2, SCREEN_SIZE[1] - 10))
         self.rect = self.image.get_rect(topright=position)
 
+    def update(self, keys, screen_rect, camera, dt):
+        #self.position -= vector(camera.target.position)
+        #self.rect = self.image.get_rect(topright=self.position)
+        #if self.camera.scroll > 0:
+        #    self.rect.x -= self.camera.scroll
+        #elif self.camera.scroll < 0:
+            #print("this")
+            #self.rect.x += abs(self.camera.scroll)
+            #self.position += vector(abs(self.camera.scroll), 0)
+            #self.rect.x = self.rect.x+abs(self.camera.scroll)    
+        #    print(self.camera.scroll)
+        #    self.rect.x = self.rect.x + (abs(self.camera.scroll)*-1)
+        #print(self.rect)
+        None
 
     def draw(self, surface):
         """
         Basic draw function.
         """
+        self.rect.x = self.start_pos[0] - (SCREEN_SIZE[0] - self.camera.position[0])
         surface.blit(self.image, self.rect)
+        #surface.blit(self.image, (self.rect.x-self.camera.position[0], self.rect.y))
+
+
+class Camera():
+    def __init__(self, size, target):
+        self.virtual_screen_size = size
+        # initially set to middle of screen
+        self.position = vector(SCREEN_SIZE[0]/2, SCREEN_SIZE[1]/2)
+        self.scroll = 0
+        #print("initial")
+        #print(self.position)
+
+    def update(self, target):
+        if target.acceleration.x == 0:
+            self.scroll = 0
+            #print("not moving")
+            return
+        if target.velocity[0] < 0 and target.position[0] < int(SCREEN_SIZE[0] * 0.25):
+            print("scroll right")
+            if (self.position[0] > self.virtual_screen_size[0]-10):
+                self.position[0] += 10 # target.acceleration.x
+                self.moved = True
+            #self.scroll = target.acceleration.x
+            print(self.position)
+        elif target.velocity [0] > 0 and target.position[0] > int(SCREEN_SIZE[0] * 0.75):
+            print("scroll left")
+            if (self.position[0] >= self.virtual_screen_size[0]-10):
+                self.position[0] -= 10 # target.acceleration.x
+                self.moved = True
+            #self.scroll = target.acceleration.x   
+            print(self.position) 
+            
+        #print(target.position[0])
+        #if self.position[0] != target.position[0]:
+            #self.position[0] -= target.position[0]
+        #    self.moved = True
+        #    print("moved")
+        #else:
+        #    self.moved = False    
+        #print(self.target.position)
 
 
 class App(object):
@@ -194,9 +255,10 @@ class App(object):
         self.time_now = self.start_time
         self.done = False
         self.keys = pg.key.get_pressed()
-        self.player = Player(self, vector(0, 300), SPRITE_SIZE, (255, 0, 0), SPRITE_VELOCITY)
-        self.platform1 = Platform((SCREEN_SIZE[0], 10), (SCREEN_SIZE[0], SCREEN_SIZE[1] - 10), (100, 100, 200))
-        self.platform2 = Platform((200, 10), (SCREEN_SIZE[0]-200, 300), (100, 100,200))
+        self.player = Player(self, vector(300, 200), SPRITE_SIZE, (255, 0, 0), SPRITE_VELOCITY)
+        self.camera = Camera(VIRTUAL_SCREEN_SIZE, self.player)
+        self.platform1 = Platform(self.camera, vector(SCREEN_SIZE[0], 10), (SCREEN_SIZE[0], SCREEN_SIZE[1] - 10), (100, 100, 200))
+        self.platform2 = Platform(self.camera, vector(200, 10), (SCREEN_SIZE[0]-200, 300), (100, 100,200))
         self.all_platforms = pg.sprite.Group()
         self.all_platforms.add(self.platform1)
         self.all_platforms.add(self.platform2)
@@ -204,7 +266,7 @@ class App(object):
         self.all_sprites.add(self.player)
         self.all_sprites.add(self.platform1)
         self.all_sprites.add(self.platform2)
-        self.debug_overlay = DebugOverlay((0, 0), DEBUG_OVERLAY_SIZE, DEBUG_OVERLAY_BACKGROUND_COLOR)
+        self.debug_overlay = DebugOverlay((0, 0), DEBUG_OVERLAY_SIZE, DEBUG_OVERLAY_BACKGROUND_COLOR, self.player)
 
     def event_loop(self):
         """
@@ -220,7 +282,9 @@ class App(object):
         """
         Update all the sprites
         """
-        self.player.update(self.keys, self.screen_rect, dt)
+        for entity in self.all_sprites:
+            entity.update(self.keys, self.screen_rect, self.camera, dt)
+        self.camera.update(self.player)        
         self.debug_overlay.update(self.keys, self.screen_rect, dt)
 
     def draw(self):
